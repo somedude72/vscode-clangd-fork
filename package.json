@@ -2,7 +2,7 @@
     "name": "vscode-clangd-fork",
     "displayName": "Clangd Fork",
     "description": "C/C++ completion, navigation, and insights",
-    "version": "0.1.35",
+    "version": "0.1.36",
     "publisher": "somedude72",
     "license": "MIT",
     "homepage": "https://clangd.llvm.org/",

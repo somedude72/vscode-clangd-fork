@@ -242,9 +242,20 @@ export class ClangdContext implements vscode.Disposable {
     doxygen = doxygen.replace(/Passed as [^\n]*/, "");
     doxygen = doxygen.replace(/.*\/\/\s*In\s*\S+.*(?:\r?\n?)(?![\s\S]*\/\/\s*In\s*\S+)/, "");
     doxygen = doxygen.replace(/^(Offset:.*?bytes)(?!\r?\n)$/m, "$1\n");
+    doxygen = doxygen.replace(/Value\s*=\s*`[^`]+`\n?/g, "");
+    
+    const index = doxygen.indexOf("```");
+    if (index !== -1) {
+      // Split the input at the first occurrence of fence.
+      const before = doxygen.slice(0, index);
+      const after = doxygen.slice(index);
+      const transformedBefore = before.replace(/\n/g, "\n\n\n");
+      doxygen = transformedBefore + after;
+    }
 
     doxygen = doxygen.replace(/\\_/g, "_");
     doxygen = doxygen.replace(/\\</g, "<");
+    doxygen = doxygen.replace(/\\\*/g, "*");
     
     // Normalize \ and \\ prefixes to @ for easier processing
     doxygen = doxygen.replace(/\\\\/g, '@'); // \\\\ -> @
