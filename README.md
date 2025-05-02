@@ -1,5 +1,11 @@
 # clangd
 
+This fork of clangd shortens the hover popup to be similar to Microsoft's cpptools
+extension, and adds support for doxygen comment rendering in the hover popup. The version
+of clangd used in this fork is 0.1.34.
+
+**This is not the official clangd language server**. The original README follows:
+
 [clangd](https://clangd.llvm.org) helps developers write, understand and
 improve C/C++ code by providing:
 

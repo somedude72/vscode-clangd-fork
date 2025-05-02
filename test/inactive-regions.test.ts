@@ -2,13 +2,16 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import * as vscodelc from 'vscode-languageclient/node';
 
-import {ClangdContext} from '../src/clangd-context';
+import { ClangdContext } from '../src/clangd-context';
 import * as config from '../src/config';
 import * as inactiveRegions from '../src/inactive-regions';
 
 import * as mocks from './mocks';
 
 class MockClangdContext implements ClangdContext {
+  convertDoxygenToMarkdown(doxygen: string): string {
+    throw new Error('Method not implemented.');
+  }
   subscriptions: vscode.Disposable[] = [];
   client = new vscodelc.LanguageClient('', {command: ''}, {});
 

@@ -167,7 +167,15 @@ export class ClangdContext implements vscode.Disposable {
         provideHover: async (document, position, token, next) => {
           if (!config.get<boolean>('enableHover'))
             return null;
-          return next(document, position, token);
+
+          var hover = await next(document, position, token);
+          if (hover?.contents[0] instanceof vscode.MarkdownString) {
+            console.log(hover.contents[0].value);
+            hover.contents[0].value = this.convertDoxygenToMarkdown(hover.contents[0].value);
+            console.log(hover.contents[0].value);
+          }
+
+          return hover;
         },
         // VSCode applies fuzzy match only on the symbol name, thus it throws
         // away all results if query token is a prefix qualified name.
@@ -217,6 +225,183 @@ export class ClangdContext implements vscode.Disposable {
     fileStatus.activate(this);
     switchSourceHeader.activate(this);
     configFileWatcher.activate(this);
+  }
+
+  // the following is vibe coded using chatgpt. do not attempt to edit this code,
+  // otherwise your sanity may cease to exist in the next 2 hours. you have been warned
+  convertDoxygenToMarkdown(doxygen: string): string {
+    doxygen = doxygen.replace(/###[\s\S]+?`[\s\S]+?`/, "");
+    doxygen = doxygen.replace(/^provided by\s+`[^`]+`\s*$/gm, "");
+    doxygen = doxygen.replace(/---/gm, "");
+
+    doxygen = doxygen.replace(/Type: `[^`]+`/g, "");
+    doxygen = doxygen.replace(/→ `[^`]+`/g, "");
+    doxygen = doxygen.replace(/Parameters:/, "");
+    doxygen = doxygen.replace(/- `[^`]+`/g, "");
+    doxygen = doxygen.replace(/Passed by [^\n]*/, "");
+    doxygen = doxygen.replace(/Passed as [^\n]*/, "");
+    doxygen = doxygen.replace(/.*\/\/\s*In\s*\S+.*(?:\r?\n?)(?![\s\S]*\/\/\s*In\s*\S+)/, "");
+    doxygen = doxygen.replace(/^(Offset:.*?bytes)(?!\r?\n)$/m, "$1\n");
+
+    doxygen = doxygen.replace(/\\_/g, "_");
+    doxygen = doxygen.replace(/\\</g, "<");
+    
+    // Normalize \ and \\ prefixes to @ for easier processing
+    doxygen = doxygen.replace(/\\\\/g, '@'); // \\\\ -> @
+    doxygen = doxygen.replace(/\\/g, '@');     // \\ -> @
+  
+    const lines = doxygen.split(/\r?\n/);
+    const output: string[] = [];
+  
+    let inBrief = false;
+    let inDetails = false;
+    let paramStarted = false;
+    let tparamStarted = false;
+    let returnStarted = false;
+    let inNote = false;
+    let inWarning = false;
+    let skippingUnknown = false;
+  
+    const knownTags = ['@brief', '@param', '@tparam', '@return', '@details', '@since', '@note', '@warning'];
+    const ignorableTags = ['@ingroup', '@headerfile'];
+  
+    const isKnownTag = (line: string) => knownTags.some(tag => line.startsWith(tag));
+    const isIgnorableTag = (line: string) => ignorableTags.some(tag => line.startsWith(tag));
+    const isAnyTag = (line: string) => /^@\w+/.test(line);
+  
+    const normalizeTag = (tag: string) => tag.replace(/^@/, '').toLowerCase();
+    const matchTagLine = (tagName: string) => new RegExp(`^@${tagName}\\s+(.*)$`, 'i');
+  
+    let previousLineEmpty = false;
+  
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
+  
+      if (line === '') {
+        if (!previousLineEmpty) output.push('');
+        previousLineEmpty = true;
+        continue;
+      } else {
+        previousLineEmpty = false;
+      }
+  
+      // Remove percentages and <a href> tags
+      line = line.replace(/%/g, '');
+      line = line.replace(/<a [^>]+>(.*?)<\/a>/gi, '$1');
+  
+      // Handle inline @c code blocks
+      line = line.replace(/@c\s+(\S+)/g, '`$1`');
+  
+      // Skip ignorable tags
+      if (isIgnorableTag(line)) {
+        skippingUnknown = true;
+        continue;
+      }
+  
+      // Handle unknown tags by skipping their lines
+      if (isAnyTag(line) && !isKnownTag(line)) {
+        skippingUnknown = true;
+        continue;
+      }
+      if (skippingUnknown && !isAnyTag(line)) continue;
+      skippingUnknown = false;
+  
+      if (matchTagLine('brief').test(line)) {
+        const content = line.replace(matchTagLine('brief'), '$1').trim();
+        output.push('', `**Brief**: ${content}`, '');
+        inBrief = true;
+        continue;
+      }
+      if (inBrief && isAnyTag(line)) inBrief = false;
+      if (inBrief) {
+        output.push(line);
+        continue;
+      }
+  
+      if (matchTagLine('details').test(line)) {
+        const content = line.replace(matchTagLine('details'), '$1').trim();
+        output.push('', `**Details**: ${content}`, '');
+        inDetails = true;
+        continue;
+      }
+      if (inDetails && isAnyTag(line)) inDetails = false;
+      if (inDetails) {
+        output.push(line);
+        continue;
+      }
+  
+      if (matchTagLine('since').test(line)) {
+        const content = line.replace(matchTagLine('since'), '$1').trim();
+        output.push('', `**Since**: ${content}`, '');
+        continue;
+      }
+  
+      if (matchTagLine('note').test(line)) {
+        const content = line.replace(matchTagLine('note'), '$1').trim();
+        output.push('', `**Note**: ${content}`, '');
+        inNote = true;
+        continue;
+      }
+      if (inNote && isAnyTag(line)) inNote = false;
+      if (inNote) {
+        output.push(line);
+        continue;
+      }
+  
+      if (matchTagLine('warning').test(line)) {
+        const content = line.replace(matchTagLine('warning'), '$1').trim();
+        output.push('', `**Warning**: ${content}`, '');
+        inWarning = true;
+        continue;
+      }
+      if (inWarning && isAnyTag(line)) inWarning = false;
+      if (inWarning) {
+        output.push(line);
+        continue;
+      }
+  
+      if (matchTagLine('param').test(line)) {
+        if (!paramStarted) {
+          output.push('', `**Parameters**:`, '');
+          paramStarted = true;
+        }
+        const [, name, desc] = line.match(/^@\w+\s+(\S+)\s+(.*)$/) || [];
+        if (name && desc !== undefined) output.push(` - \`${name.replace(/^\\+/, '')}\`: ${desc}`);
+        continue;
+      } else if (paramStarted && isAnyTag(line)) {
+        output.push('');
+        paramStarted = false;
+      }
+  
+      if (matchTagLine('tparam').test(line)) {
+        if (!tparamStarted) {
+          output.push('', `**Template Parameters**:`, '');
+          tparamStarted = true;
+        }
+        const [, name, desc] = line.match(/^@\w+\s+(\S+)\s+(.*)$/) || [];
+        if (name && desc !== undefined) output.push(` - \`${name.replace(/^\\+/, '')}\`: ${desc}`);
+        continue;
+      } else if (tparamStarted && isAnyTag(line)) {
+        output.push('');
+        tparamStarted = false;
+      }
+  
+      if (matchTagLine('return').test(line)) {
+        const content = line.replace(matchTagLine('return'), '$1').trim();
+        output.push('', `**Returns**: ${content}`, '');
+        returnStarted = true;
+        continue;
+      }
+      if (returnStarted && isAnyTag(line)) returnStarted = false;
+      if (returnStarted) {
+        output.push(line);
+        continue;
+      }
+  
+      output.push(line);
+    }
+  
+    return output.join('\n');
   }
 
   get visibleClangdEditors(): vscode.TextEditor[] {
